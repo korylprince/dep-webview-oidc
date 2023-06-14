@@ -28,7 +28,7 @@ func (e *AuthorizationError) Unwrap() error {
 	return e.Err
 }
 
-type SessionAuthorizer interface {
+type Authorizer interface {
 	// AuthorizeSession authorizes the user/device session and returns an EnrollContext that can be passed to an EnrollmentGenerator.
 	// If the request is not authorized, an error of type AuthorizationError is returned.
 	AuthorizeSession(ctx context.Context, info *header.MachineInfo, oauth2Token *oauth2.Token, idToken *oidc.IDToken) (enrollprofile.Context, error)
@@ -41,11 +41,11 @@ func (a NopAuthorizer) AuthorizeSession(_ context.Context, _ *header.MachineInfo
 	return make(enrollprofile.Context), nil
 }
 
-// CacheAuthorizer wraps a SessionAuthorizer and caches results for configurable durations.
+// CacheAuthorizer wraps an Authorizer and caches results for configurable durations.
 // The cache uses the OIDC id_token subject as the cache key.
 // Note: only errors that are AuthorizationError (when checked with errors.As) are cached.
 type CacheAuthorizer struct {
-	authorizer SessionAuthorizer
+	authorizer Authorizer
 	logger     *slog.Logger
 	ttl        time.Duration
 	failttl    time.Duration
@@ -79,7 +79,7 @@ func WithFailureCacheTTL(ttl time.Duration) CacheOption {
 	}
 }
 
-func NewCacheAuthorizer(authorizer SessionAuthorizer, opts ...CacheOption) *CacheAuthorizer {
+func NewCacheAuthorizer(authorizer Authorizer, opts ...CacheOption) *CacheAuthorizer {
 	a := &CacheAuthorizer{
 		authorizer: authorizer,
 		ttl:        10 * time.Minute,

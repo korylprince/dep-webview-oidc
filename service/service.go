@@ -48,7 +48,7 @@ type Service struct {
 
 	store           store.StateStore
 	errWriter       ErrorWriter
-	authorizer      auth.SessionAuthorizer
+	authorizer      auth.Authorizer
 	enrollGenerator enrollprofile.Generator
 }
 
@@ -126,7 +126,7 @@ func WithOIDCConfig(providerURL string, config *oauth2.Config, redirectURLBase s
 
 // WithHeaderParserDisabled configures the service to parse the x-apple-aspen-deviceinfo header or not.
 // If left unconfigured, the header will be parsed.
-// If disabled is true, an empty, non-nil *header.MachineInfo will be passed to the service's SessionAuthorizer
+// If disabled is true, an empty, non-nil *header.MachineInfo will be passed to the service's Authorizer
 func WithHeaderParserDisabled(disabled bool) Option {
 	return func(s *Service) error {
 		s.parserDisabled = disabled
@@ -161,9 +161,9 @@ func WithErrorWriter(errWriter ErrorWriter) Option {
 	}
 }
 
-// WithSessionAuthorizer configures the service with the given session authorizer.
+// WithAuthorizer configures the service with the given session authorizer.
 // If left unconfigured, all sessions will be authorized
-func WithSessionAuthorizer(authorizer auth.SessionAuthorizer) Option {
+func WithAuthorizer(authorizer auth.Authorizer) Option {
 	return func(s *Service) error {
 		s.authorizer = authorizer
 		return nil

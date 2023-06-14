@@ -167,7 +167,7 @@ func run() (runErr error) {
 
 	opts = append(opts, service.WithEnrollProfileGenerator(generator))
 
-	var authorizer auth.SessionAuthorizer = &auth.NopAuthorizer{}
+	var authorizer auth.Authorizer = &auth.NopAuthorizer{}
 
 	if *flGoogleAuth {
 		if *flGoogleAuthPath == "" || *flGoogleImpersonate == "" || *flGoogleAllowedGroups == "" {
@@ -190,7 +190,7 @@ func run() (runErr error) {
 			auth.WithFailureCacheTTL(*flCacheFailureTTL),
 		)
 	}
-	opts = append(opts, service.WithSessionAuthorizer(authorizer))
+	opts = append(opts, service.WithAuthorizer(authorizer))
 
 	svc, err := service.New(opts...)
 	if err != nil {
