@@ -101,7 +101,7 @@ func run() (runErr error) {
 	}
 
 	if *flProxyHeaders {
-		opts = append(opts, service.WithProxyHeaders(true))
+		opts = append(opts, service.WithProxyHeaders())
 	}
 
 	if *flTLSCert != "" && *flTLSKey != "" {
@@ -136,7 +136,7 @@ func run() (runErr error) {
 	}
 
 	if *flHeaderParserDisabled {
-		opts = append(opts, service.WithHeaderParserDisabled(true))
+		opts = append(opts, service.WithHeaderParserDisabled())
 	}
 
 	if *flEnrollProfile == "" {

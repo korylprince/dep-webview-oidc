@@ -83,9 +83,9 @@ func WithURLPrefix(prefix string) Option {
 
 // WithProxyHeaders configures the service to parse proxy headers to update the HTTP request with the "real" remote.
 // If left unconfigured, proxy headers will not be parsed
-func WithProxyHeaders(enabled bool) Option {
+func WithProxyHeaders() Option {
 	return func(s *Service) error {
-		s.proxyHeaders = enabled
+		s.proxyHeaders = true
 		return nil
 	}
 }
@@ -124,12 +124,11 @@ func WithOIDCConfig(providerURL string, config *oauth2.Config, redirectURLBase s
 	}
 }
 
-// WithHeaderParserDisabled configures the service to parse the x-apple-aspen-deviceinfo header or not.
-// If left unconfigured, the header will be parsed.
-// If disabled is true, an empty, non-nil *header.MachineInfo will be passed to the service's Authorizer
-func WithHeaderParserDisabled(disabled bool) Option {
+// WithHeaderParserDisabled configures the service to skip parsing the x-apple-aspen-deviceinfo header
+// An empty, non-nil *header.MachineInfo will be passed to the service's Authorizer
+func WithHeaderParserDisabled() Option {
 	return func(s *Service) error {
-		s.parserDisabled = disabled
+		s.parserDisabled = true
 		return nil
 	}
 }
