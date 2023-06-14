@@ -5,11 +5,13 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/coreos/go-oidc/v3/oidc"
 	"github.com/google/uuid"
 	"github.com/korylprince/dep-webview-oidc/auth"
 	"github.com/korylprince/dep-webview-oidc/header"
 	"github.com/korylprince/dep-webview-oidc/log"
 	"golang.org/x/exp/slog"
+	"golang.org/x/oauth2"
 )
 
 const ContentTypeProfile = "application/x-apple-aspen-config"
@@ -50,6 +52,36 @@ func (s *Service) handleError(status int, w http.ResponseWriter, r *http.Request
 	s.errWriter.WriteError(status, w, r, err)
 }
 
+func (s *Service) authorize(w http.ResponseWriter, r *http.Request, info *header.MachineInfo, oauth2Token *oauth2.Token, idToken *oidc.IDToken) {
+	// authorize session
+	enrollCtx, err := s.authorizer.AuthorizeSession(r.Context(), info, oauth2Token, idToken)
+	if err != nil {
+		authErr := new(auth.AuthorizationError)
+		if errors.As(err, &authErr) {
+			log.Attrs(r.Context(), slog.Bool("auth", false))
+			s.handleError(http.StatusForbidden, w, r, fmt.Errorf("could not authorize session: %w", err))
+			return
+		}
+		s.handleError(http.StatusInternalServerError, w, r, fmt.Errorf("could not authorize session: %w", err))
+		return
+	}
+
+	log.Attrs(r.Context(), slog.Bool("auth", true))
+
+	// generate and send profile
+	buf, err := s.enrollGenerator.GenerateEnrollProfile(r.Context(), enrollCtx)
+	if err != nil {
+		s.handleError(http.StatusInternalServerError, w, r, fmt.Errorf("could not generate enrollment profile: %w", err))
+		return
+	}
+
+	w.Header().Set("Content-Type", ContentTypeProfile)
+	w.WriteHeader(http.StatusOK)
+	if _, err = w.Write(buf); err != nil {
+		log.Attrs(r.Context(), slog.String("write-error", fmt.Sprintf("could not write profile: %v", err)))
+	}
+}
+
 // RedirectHandler parses and creates a session with the mdm request header and redirects to the OIDC authorization endpoint
 func (s *Service) RedirectHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -62,6 +94,12 @@ func (s *Service) RedirectHandler() http.Handler {
 				s.handleError(http.StatusBadRequest, w, r, err)
 				return
 			}
+		}
+
+		// if skipping OIDC, go straight to authorize step
+		if s.skipOIDC {
+			s.authorize(w, r, info, nil, nil)
+			return
 		}
 
 		state := uuid.New().String()
@@ -142,32 +180,7 @@ func (s *Service) CallbackHandler() http.Handler {
 		}
 		log.Attrs(r.Context(), slog.String("sub", idToken.Subject))
 
-		// authorize session
-		enrollCtx, err := s.authorizer.AuthorizeSession(r.Context(), info, oauth2Token, idToken)
-		if err != nil {
-			authErr := new(auth.AuthorizationError)
-			if errors.As(err, &authErr) {
-				log.Attrs(r.Context(), slog.Bool("auth", false))
-				s.handleError(http.StatusForbidden, w, r, fmt.Errorf("could not authorize session: %w", err))
-				return
-			}
-			s.handleError(http.StatusInternalServerError, w, r, fmt.Errorf("could not authorize session: %w", err))
-			return
-		}
-
-		log.Attrs(r.Context(), slog.Bool("auth", true))
-
-		// generate and send profile
-		buf, err := s.enrollGenerator.GenerateEnrollProfile(r.Context(), enrollCtx)
-		if err != nil {
-			s.handleError(http.StatusInternalServerError, w, r, fmt.Errorf("could not generate enrollment profile: %w", err))
-			return
-		}
-
-		w.Header().Set("Content-Type", ContentTypeProfile)
-		w.WriteHeader(http.StatusOK)
-		if _, err = w.Write(buf); err != nil {
-			log.Attrs(r.Context(), slog.String("write-error", fmt.Sprintf("could not write profile: %v", err)))
-		}
+		// go to authorize step
+		s.authorize(w, r, info, oauth2Token, idToken)
 	})
 }

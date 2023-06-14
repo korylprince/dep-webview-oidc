@@ -38,6 +38,7 @@ type Service struct {
 	certPath string
 	keyPath  string
 
+	skipOIDC     bool
 	oauth2Config *oauth2.Config
 	authOpts     []oauth2.AuthCodeOption
 	redirectBase string
@@ -96,6 +97,15 @@ func WithTLS(certPath, keyPath string) Option {
 	return func(s *Service) error {
 		s.certPath = certPath
 		s.keyPath = keyPath
+		return nil
+	}
+}
+
+// WithSkipOIDC configures the service to skip OIDC authentication.
+// A nil oauth2Token and idToken will be passed to the configured Authorizer
+func WithSkipOIDC() Option {
+	return func(s *Service) error {
+		s.skipOIDC = true
 		return nil
 	}
 }
@@ -186,7 +196,7 @@ func New(opts ...Option) (*Service, error) {
 		}
 	}
 
-	if s.oauth2Config == nil {
+	if s.oauth2Config == nil && !s.skipOIDC {
 		return nil, ErrMissingOIDCConfig
 	}
 
@@ -200,8 +210,12 @@ func New(opts ...Option) (*Service, error) {
 
 	svclogger := s.logger.With("svc", "service")
 
-	s.oauth2Config.RedirectURL = fmt.Sprintf("%s%s/v1/callback", s.redirectBase, s.prefix)
-	svclogger.Info("starting", "redirect-url", s.oauth2Config.RedirectURL)
+	if s.skipOIDC {
+		svclogger.Info("starting", "oidc-disabled", true)
+	} else {
+		s.oauth2Config.RedirectURL = fmt.Sprintf("%s%s/v1/callback", s.redirectBase, s.prefix)
+		svclogger.Info("starting", "redirect-url", s.oauth2Config.RedirectURL)
+	}
 
 	if s.parser == nil {
 		s.parser = header.DefaultParser

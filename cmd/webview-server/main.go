@@ -30,6 +30,7 @@ func run() (runErr error) {
 	flTLSCert := flag.String("tls-cert", EnvString("TLS_CERT", ""), "The path to a TLS certificate")
 	flTLSKey := flag.String("tls-key", EnvString("TLS_KEY", ""), "The path to a TLS key")
 
+	flOIDCDisable := flag.Bool("oidc-disable", EnvBool("OIDC_DISABLE", false), "If true, OIDC authentication is skipped completely and authentication only fails if header verification fails")
 	flOIDCClientID := flag.String("oidc-client-id", EnvString("OIDC_CLIENT_ID", ""), "The OIDC client ID")
 	flOIDCClientSecret := flag.String("oidc-client-secret", EnvString("OIDC_CLIENT_SECRET", ""), "The OIDC client secret")
 	flOIDCScopes := flag.String("oidc-scopes", EnvString("OIDC_SCOPES", ""), "A list of comma separated OIDC scopes to include in flow. The openid scope will always be requested, e.g. \"email, profile\"")
@@ -108,25 +109,32 @@ func run() (runErr error) {
 		opts = append(opts, service.WithTLS(*flTLSCert, *flTLSKey))
 	}
 
-	authOptsList := toList(*flOIDCURLParams)
-	if len(authOptsList)%2 != 0 {
-		return fmt.Errorf("could not parse -oidc-url-params: number of params (%d) is not even", len(authOptsList))
-	}
-	authOpts := make([]oauth2.AuthCodeOption, len(authOptsList)/2)
-	for i := 0; i < len(authOpts); i += 2 {
-		authOpts[i/2] = oauth2.SetAuthURLParam(authOptsList[i], authOptsList[i+1])
-	}
+	if *flOIDCDisable {
+		opts = append(opts, service.WithSkipOIDC())
+	} else {
+		if *flOIDCClientID == "" || *flOIDCClientSecret == "" || *flOIDCProviderURL == "" || *flOIDCRedirectURLBase == "" {
+			return errors.New("-oidc-client-id, -oidc-client-secret, -oidc-provider-url, and -oidc-redirect-url-base are required if -oidc-disable=false")
+		}
+		authOptsList := toList(*flOIDCURLParams)
+		if len(authOptsList)%2 != 0 {
+			return fmt.Errorf("could not parse -oidc-url-params: number of params (%d) is not even", len(authOptsList))
+		}
+		authOpts := make([]oauth2.AuthCodeOption, len(authOptsList)/2)
+		for i := 0; i < len(authOpts); i += 2 {
+			authOpts[i/2] = oauth2.SetAuthURLParam(authOptsList[i], authOptsList[i+1])
+		}
 
-	opts = append(opts, service.WithOIDCConfig(
-		*flOIDCProviderURL,
-		&oauth2.Config{
-			ClientID:     *flOIDCClientID,
-			ClientSecret: *flOIDCClientSecret,
-			Scopes:       toList(*flOIDCScopes),
-		},
-		*flOIDCRedirectURLBase,
-		authOpts...,
-	))
+		opts = append(opts, service.WithOIDCConfig(
+			*flOIDCProviderURL,
+			&oauth2.Config{
+				ClientID:     *flOIDCClientID,
+				ClientSecret: *flOIDCClientSecret,
+				Scopes:       toList(*flOIDCScopes),
+			},
+			*flOIDCRedirectURLBase,
+			authOpts...,
+		))
+	}
 
 	opts = append(opts, service.WithStateStore(mem.NewMemoryStateStore(*flOIDCStateTTL)))
 	mainlogger.Info("using in-memory state store", "svc", "service", "ttl", (*flOIDCStateTTL).String())
@@ -170,6 +178,9 @@ func run() (runErr error) {
 	var authorizer auth.Authorizer = &auth.NopAuthorizer{}
 
 	if *flGoogleAuth {
+		if *flOIDCDisable {
+			return errors.New("-google-auth requires -oidc-disable=false")
+		}
 		if *flGoogleAuthPath == "" || *flGoogleImpersonate == "" || *flGoogleAllowedGroups == "" {
 			return errors.New("-google-auth requires -google-auth-path, -google-impersonate, and -google-allowed-groups")
 		}
