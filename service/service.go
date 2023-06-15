@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"time"
 
 	"github.com/coreos/go-oidc/v3/oidc"
 	"github.com/gorilla/handlers"
@@ -228,9 +227,7 @@ func New(opts ...Option) (*Service, error) {
 		s.errWriter = TextErrorWriter{}
 	}
 	if s.store == nil {
-		ttl := 5 * time.Minute
-		svclogger.Info("using default in-memory state store", "ttl", ttl.String())
-		s.store = mem.NewMemoryStateStore(ttl)
+		s.store = mem.NewStateStore(mem.WithLogger(s.logger.With("svc", "store")))
 	}
 
 	return s, nil

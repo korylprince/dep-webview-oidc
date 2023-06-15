@@ -38,6 +38,7 @@ func run() (runErr error) {
 	flOIDCRedirectURLBase := flag.String("oidc-redirect-url-base", EnvString("OIDC_REDIRECT_URL_BASE", ""), "The URL base where the provider should redirect after successful authentication, e.g. \"https://hostname[:port]\"")
 	flOIDCURLParams := flag.String("oidc-url-params", EnvString("OIDC_URL_PARAMS", ""), "A list of comma separated keys and values to append to the provider auth url, e.g. \"key1, val1, key2, val2, ...\"")
 	flOIDCStateTTL := flag.Duration("oidc-state-ttl", EnvDuration("OIDC_STATE_TTL", 5*time.Minute), "The ttl of the randomly generated OIDC state parameter. This is effectively how long the user has to enter their credentials at the provider and return to the callback URL. This should be formatted as a Go duration, e.g. \"10s\", \"15m\", \"4h\", etc")
+	flOIDCStateCapacity := flag.Int("oidc-state-capacity", EnvInt("OIDC_STATE_CAPACITY", 1024), "The total number of sessions permitted. If this number is exceeded, old sessions will be evicted prematurely")
 
 	flHeaderVerifyDisabled := flag.Bool("header-verify-disabled", EnvBool("HEADER_VERIFY_DISABLED", false), "If true, this option disables verifying of the x-apple-aspen-deviceinfo header. This can be useful for testing, but isn't recommended for production")
 	flHeaderParserDisabled := flag.Bool("header-parser-disabled", EnvBool("HEADER_PARSER_DISABLED", false), "If true, this option disables parsing of the x-apple-aspen-deviceinfo header. This can be useful for testing, but isn't recommended for production")
@@ -136,8 +137,12 @@ func run() (runErr error) {
 		))
 	}
 
-	opts = append(opts, service.WithStateStore(mem.NewMemoryStateStore(*flOIDCStateTTL)))
-	mainlogger.Info("using in-memory state store", "svc", "service", "ttl", (*flOIDCStateTTL).String())
+	statestore := mem.NewStateStore(
+		mem.WithLogger(mainlogger.With("svc", "store")),
+		mem.WithTTL(*flOIDCStateTTL),
+		mem.WithCapacity(uint64(*flOIDCStateCapacity)),
+	)
+	opts = append(opts, service.WithStateStore(statestore))
 
 	if *flHeaderVerifyDisabled {
 		opts = append(opts, service.WithHeaderParser(header.NewParser(header.WithVerify(false))))

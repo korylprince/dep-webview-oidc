@@ -71,7 +71,7 @@ func WithSuccessCacheTTL(ttl time.Duration) CacheOption {
 	}
 }
 
-// WithFailurCacheTTL configures the cache to cache failed authorizations for the given duration.
+// WithFailureCacheTTL configures the cache to cache failed authorizations for the given duration.
 // If left unconfigured, a default of 1 minute will be used.
 func WithFailureCacheTTL(ttl time.Duration) CacheOption {
 	return func(a *CacheAuthorizer) {
