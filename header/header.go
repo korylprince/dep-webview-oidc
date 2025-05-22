@@ -10,6 +10,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 
 	"github.com/groob/plist"
@@ -19,9 +20,10 @@ import (
 const DeviceInfoHeader = "x-apple-aspen-deviceinfo"
 
 var (
-	ErrEmptyHeader      = errors.New("empty header")
-	ErrNotSigned        = errors.New("not signed")
-	ErrCertRootNotFound = errors.New("certificate root not found")
+	ErrEmptyHeader        = errors.New("empty header")
+	ErrMissingMachineInfo = errors.New("missing MachineInfo")
+	ErrNotSigned          = errors.New("not signed")
+	ErrCertRootNotFound   = errors.New("certificate root not found")
 )
 
 type InvalidHeaderError struct {
@@ -54,17 +56,34 @@ var AppleRootCert = newAppleRootCert()
 
 type Context map[string]any
 
+// Origin is the origin of the MachineInfo
+type Origin string
+
+const (
+	OriginHeader = "header"
+	OriginBody   = "body"
+)
+
 // MachineInfo is a [device's information] sent as part of an MDM enrollment profile request
 //
 // [device's information]: https://developer.apple.com/documentation/devicemanagement/machineinfo
 type MachineInfo struct {
-	IMEI     string `plist:"IMEI,omitempty"`
-	Language string `plist:"LANGUAGE,omitempty"`
-	MEID     string `plist:"MEID,omitempty"`
-	Product  string `plist:"PRODUCT"`
-	Serial   string `plist:"SERIAL"`
-	UDID     string `plist:"UDID"`
-	Version  string `plist:"VERSION"`
+	// Origin is the origin of the MachineInfo, either header or body.
+	// This field is not a part of the MachineInfo itself.
+	Origin Origin `plist:"-"`
+
+	IMEI                        string `plist:"IMEI,omitempty"`
+	Language                    string `plist:"LANGUAGE,omitempty"`
+	MDMCanRequestSoftwareUpdate bool   `plist:"MDM_CAN_REQUEST_SOFTWARE_UPDATE,omitempty"`
+	MEID                        string `plist:"MEID,omitempty"`
+	OSVersion                   string `plist:"OS_VERSION,omitempty"`
+	PairingToken                string `plist:"PAIRING_TOKEN,omitempty"`
+	Product                     string `plist:"PRODUCT"`
+	Serial                      string `plist:"SERIAL"`
+	SupplementalBuildVersion    string `plist:"SUPPLEMENTAL_BUILD_VERSION,omitempty"`
+	SupplementalOSVersionExtra  string `plist:"SUPPLEMENTAL_OS_VERSION_EXTRA,omitempty"`
+	UDID                        string `plist:"UDID"`
+	Version                     string `plist:"VERSION"`
 
 	// VerifyContext is optionally populated by VerifyFuncs set on the Parser.
 	// Parser.Parse guarantees VerifyContext to be non-nil
@@ -72,11 +91,11 @@ type MachineInfo struct {
 }
 
 // VerifyFunc is used to add additional verification of the initial device request.
-// The original request, r, verified PKCS7 header, p7, and additional context, ctx are passed to the function.
+// The original request, r, verified PKCS7 header, p7, additional context, ctx, and the MachineInfo origin are passed to the function.
 // ctx is passed through the chain of VerifyFuncs,
 // with the final result being added to the *MachineInfo returned by the parser.
 // ctx should not be modified outside of the scope of the function.
-type VerifyFunc func(r *http.Request, p7 *pkcs7.PKCS7, ctx Context) error
+type VerifyFunc func(r *http.Request, p7 *pkcs7.PKCS7, ctx Context, origin Origin) error
 
 // Parser parses the x-apple-aspen-deviceinfo header from requests sent to the configuration_web_url
 // as part of the [Authenticating Through Web Views] enrollment process
@@ -179,19 +198,21 @@ outer:
 	}
 }
 
-// Parse parses the x-apple-aspen-deviceinfo header from the request, verifies the request as configured by the Parser, and returns the parsed *MachineInfo
-func (p *Parser) Parse(r *http.Request) (*MachineInfo, error) {
-	hdr := r.Header.Get(DeviceInfoHeader)
-	if hdr == "" {
-		return nil, &InvalidHeaderError{Err: ErrEmptyHeader}
-	}
-
-	buf, err := base64.StdEncoding.DecodeString(hdr)
+func (p *Parser) parseFromBody(r *http.Request) (*MachineInfo, error) {
+	buf, err := io.ReadAll(r.Body)
 	if err != nil {
-		return nil, &InvalidHeaderError{Err: fmt.Errorf("could not decode base64: %w", err)}
+		return nil, fmt.Errorf("could not read body: %w", err)
 	}
 
-	p7, err := pkcs7.Parse(buf)
+	if len(buf) == 0 {
+		return nil, ErrMissingMachineInfo
+	}
+
+	return p.parse(r, buf, OriginBody)
+}
+
+func (p *Parser) parse(r *http.Request, b []byte, origin Origin) (*MachineInfo, error) {
+	p7, err := pkcs7.Parse(b)
 	if err != nil {
 		return nil, &InvalidHeaderError{Err: fmt.Errorf("could not decode pkcs7: %w", err)}
 	}
@@ -205,7 +226,7 @@ func (p *Parser) Parse(r *http.Request) (*MachineInfo, error) {
 
 	ctx := make(Context)
 	for _, f := range p.verifyFuncs {
-		if err = f(r, p7, ctx); err != nil {
+		if err = f(r, p7, ctx, origin); err != nil {
 			return nil, fmt.Errorf("could not verify header: %w", err)
 		}
 	}
@@ -215,7 +236,26 @@ func (p *Parser) Parse(r *http.Request) (*MachineInfo, error) {
 		return nil, &InvalidHeaderError{Err: fmt.Errorf("could not decode plist: %w", err)}
 	}
 
+	info.Origin = origin
 	info.VerifyContext = ctx
 
 	return info, nil
+}
+
+// Parse parses the [MachineInfo] from the request, either from the x-apple-aspen-deviceinfo header
+// or from the request body, verifies the request as configured by the Parser, and returns the parsed *MachineInfo
+//
+// [MachineInfo]: https://developer.apple.com/documentation/devicemanagement/machineinfo
+func (p *Parser) Parse(r *http.Request) (*MachineInfo, error) {
+	hdr := r.Header.Get(DeviceInfoHeader)
+	if hdr == "" {
+		return p.parseFromBody(r)
+	}
+
+	buf, err := base64.StdEncoding.DecodeString(hdr)
+	if err != nil {
+		return nil, &InvalidHeaderError{Err: fmt.Errorf("could not decode base64: %w", err)}
+	}
+
+	return p.parse(r, buf, OriginHeader)
 }
