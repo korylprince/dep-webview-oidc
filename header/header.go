@@ -80,6 +80,7 @@ type MachineInfo struct {
 	PairingToken                string `plist:"PAIRING_TOKEN,omitempty"`
 	Product                     string `plist:"PRODUCT"`
 	Serial                      string `plist:"SERIAL"`
+	SoftwareUpdateDeviceID      string `plist:"SOFTWARE_UPDATE_DEVICE_ID"`
 	SupplementalBuildVersion    string `plist:"SUPPLEMENTAL_BUILD_VERSION,omitempty"`
 	SupplementalOSVersionExtra  string `plist:"SUPPLEMENTAL_OS_VERSION_EXTRA,omitempty"`
 	UDID                        string `plist:"UDID"`
