@@ -163,6 +163,7 @@ func (s *Service) CallbackHandler() http.Handler {
 		oauth2Token, err := s.oauth2Config.Exchange(r.Context(), r.URL.Query().Get("code"))
 		if err != nil {
 			s.handleError(http.StatusBadRequest, w, r, fmt.Errorf("could not exchange token: %w", err))
+			return
 		}
 
 		// get id_token from token
